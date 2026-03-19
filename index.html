@@ -58,7 +58,7 @@
 <body>
 
     <div id="instructions">
-        Neige dein Gerät, um die Gravitation zu steuern!
+        Neige dein Gerät (oder bewege die Maus), um die Elemente zu steuern!
     </div>
 
     <script>
@@ -281,7 +281,10 @@
                 width: width, height: height,
                 startX: startX, startY: startY,
                 maxEyeRadiusX: maxEyeRadiusX, maxEyeRadiusY: maxEyeRadiusY,
-                createPhysicsBody: createPhysicsBody
+                createPhysicsBody: createPhysicsBody,
+                // NEU: Ein eigener Vektor für diese spezifische Form und eine zufällige Reaktionsgeschwindigkeit
+                currentEyeVector: { x: 0, y: 1 },
+                eyeLerpSpeed: Math.random() * 0.12 + 0.03 // Wert zwischen 0.03 (sehr träge) und 0.15 (schnell)
             });
         }
 
@@ -325,33 +328,47 @@
         const runner = Runner.create();
         Runner.run(runner, engine);
 
-        // --- 2. GYROSCOPE (GERÄTENEIGUNG) ---
-        window.addEventListener('deviceorientation', (event) => {
-            // gamma: Links/Rechts Neigung (-90 bis 90)
-            // beta: Vor/Zurück Neigung (-180 bis 180)
-            let gamma = event.gamma || 0;
-            let beta = event.beta || 0;
+        // --- 2. INPUT & GYROSCOPE ---
+        let inputVector = { x: 0, y: 1 }; // Standard-Blickrichtung (nach unten)
+        let gyroActive = false;
 
-            // Wir skalieren die Werte (Teilung durch 45), sodass bei 45 Grad Neigung 
-            // exakt die einfache Standard-Gravitation (1.0) erreicht wird.
+        window.addEventListener('deviceorientation', (event) => {
+            // Ignoriere Geister-Events ohne echte Sensordaten (z.B. auf Desktop-Browsern)
+            if (event.gamma === null || event.beta === null) return;
+            
+            gyroActive = true;
+            let gamma = event.gamma;
+            let beta = event.beta;
+
             let gravityX = gamma / 45;
             let gravityY = beta / 45;
 
-            // Optional: Begrenzung der maximalen Fallgeschwindigkeit bei extremer Neigung
             gravityX = Math.max(-1.5, Math.min(1.5, gravityX));
             gravityY = Math.max(-1.5, Math.min(1.5, gravityY));
 
-            // Matter.js Gravitation anpassen
             engine.gravity.x = gravityX;
             engine.gravity.y = gravityY;
+
+            // Gyrosensor setzt den Zielvektor der Augen
+            inputVector.x = gravityX;
+            inputVector.y = gravityY;
+        });
+
+        // Fallback: Maus-Tracking, falls an einem Desktop-Rechner getestet wird
+        window.addEventListener('mousemove', (e) => {
+            if (gyroActive) return; // Wenn ein Gyro erkannt wurde, ignoriere die Maus
+            
+            // Berechne Vektor von der Bildschirmmitte zur Maus
+            let dx = e.clientX - window.innerWidth / 2;
+            let dy = e.clientY - window.innerHeight / 2;
+            
+            // Werte etwas runterskalieren
+            inputVector.x = dx * 0.01;
+            inputVector.y = dy * 0.01;
         });
 
         // --- 3. RENDER LOOP (Sync Physik -> DOM & Augen) ---
         function update() {
-            // Aktuelle Gravitations-Werte (Gyro-Kipprichtung) auslesen
-            const gx = engine.gravity.x;
-            const gy = engine.gravity.y;
-
             shapeConfigs.forEach(config => {
                 // 3.1. DOM-Element mit dem Physik-Körper synchronisieren
                 const x = config.body.position.x - config.localCx;
@@ -360,27 +377,33 @@
 
                 config.element.style.transform = `translate(${x}px, ${y}px) rotate(${angle}rad)`;
 
-                // 3.2. Pupillen berechnen (Blickrichtung = Gyro-Gravitation)
-                config.scleras.forEach((sclera, index) => {
-                    const pupil = config.pupils[index];
-                    
-                    // Die globale Gravitationsrichtung in das lokale Koordinatensystem der Form rotieren
-                    const localDx = gx * Math.cos(-angle) - gy * Math.sin(-angle);
-                    const localDy = gx * Math.sin(-angle) + gy * Math.cos(-angle);
+                if (config.scleras && config.scleras.length > 0) {
+                    // 3.2. Augenvektor interpolieren (Lerp - Linear Interpolation)
+                    // Nähert den aktuellen Augenvektor dieser Form schrittweise an den globalen Input-Vektor an
+                    config.currentEyeVector.x += (inputVector.x - config.currentEyeVector.x) * config.eyeLerpSpeed;
+                    config.currentEyeVector.y += (inputVector.y - config.currentEyeVector.y) * config.eyeLerpSpeed;
 
-                    const localAngle = Math.atan2(localDy, localDx);
-                    
-                    // Hoher Multiplikator (100), damit die Augen schon bei leichter Neigung "deutlich" ausschlagen
-                    let dist = Math.hypot(localDx, localDy) * 100;
+                    // 3.3. Pupillen berechnen (Blickrichtung basierend auf dem interpolierten Vektor)
+                    config.scleras.forEach((sclera, index) => {
+                        const pupil = config.pupils[index];
+                        
+                        // Die verzögerte Input-Richtung in das lokale Koordinatensystem der Form rotieren
+                        const localDx = config.currentEyeVector.x * Math.cos(-angle) - config.currentEyeVector.y * Math.sin(-angle);
+                        const localDy = config.currentEyeVector.x * Math.sin(-angle) + config.currentEyeVector.y * Math.cos(-angle);
 
-                    const radiusX = Math.min(dist, config.maxEyeRadiusX);
-                    const radiusY = Math.min(dist, config.maxEyeRadiusY);
+                        const localAngle = Math.atan2(localDy, localDx);
+                        
+                        let dist = Math.hypot(localDx, localDy) * 100;
 
-                    const finalX = Math.cos(localAngle) * radiusX;
-                    const finalY = Math.sin(localAngle) * radiusY;
+                        const radiusX = Math.min(dist, config.maxEyeRadiusX);
+                        const radiusY = Math.min(dist, config.maxEyeRadiusY);
 
-                    pupil.style.transform = `translate(${finalX}px, ${finalY}px)`;
-                });
+                        const finalX = Math.cos(localAngle) * radiusX;
+                        const finalY = Math.sin(localAngle) * radiusY;
+
+                        pupil.style.transform = `translate(${finalX}px, ${finalY}px)`;
+                    });
+                }
             });
 
             requestAnimationFrame(update);
