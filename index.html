@@ -348,9 +348,9 @@
 
         // --- 3. RENDER LOOP (Sync Physik -> DOM & Augen) ---
         function update() {
-            // Ziel für die Augen ist jetzt immer exakt die Bildschirmmitte
-            const targetX = window.innerWidth / 2;
-            const targetY = window.innerHeight / 2;
+            // Aktuelle Gravitations-Werte (Gyro-Kipprichtung) auslesen
+            const gx = engine.gravity.x;
+            const gy = engine.gravity.y;
 
             shapeConfigs.forEach(config => {
                 // 3.1. DOM-Element mit dem Physik-Körper synchronisieren
@@ -360,23 +360,18 @@
 
                 config.element.style.transform = `translate(${x}px, ${y}px) rotate(${angle}rad)`;
 
-                // 3.2. Pupillen berechnen
+                // 3.2. Pupillen berechnen (Blickrichtung = Gyro-Gravitation)
                 config.scleras.forEach((sclera, index) => {
                     const pupil = config.pupils[index];
                     
-                    const rect = sclera.getBoundingClientRect();
-                    const eyeCenterX = rect.left + rect.width / 2;
-                    const eyeCenterY = rect.top + rect.height / 2;
-
-                    // Distanz zur Bildschirmmitte berechnen (statt Maus)
-                    const globalDx = targetX - eyeCenterX;
-                    const globalDy = targetY - eyeCenterY;
-
-                    const localDx = globalDx * Math.cos(-angle) - globalDy * Math.sin(-angle);
-                    const localDy = globalDx * Math.sin(-angle) + globalDy * Math.cos(-angle);
+                    // Die globale Gravitationsrichtung in das lokale Koordinatensystem der Form rotieren
+                    const localDx = gx * Math.cos(-angle) - gy * Math.sin(-angle);
+                    const localDy = gx * Math.sin(-angle) + gy * Math.cos(-angle);
 
                     const localAngle = Math.atan2(localDy, localDx);
-                    let dist = Math.hypot(localDx, localDy) * 0.15; // Etwas reaktiver gemacht
+                    
+                    // Hoher Multiplikator (100), damit die Augen schon bei leichter Neigung "deutlich" ausschlagen
+                    let dist = Math.hypot(localDx, localDy) * 100;
 
                     const radiusX = Math.min(dist, config.maxEyeRadiusX);
                     const radiusY = Math.min(dist, config.maxEyeRadiusY);
