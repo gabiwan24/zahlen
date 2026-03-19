@@ -11,7 +11,7 @@
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background-color: #f4f4f4;
+            background-color: #000;
             font-family: sans-serif;
             touch-action: none;
         }
@@ -54,8 +54,8 @@
             position: absolute;
             top: 20px;
             left: 20px;
-            color: #555;
-            background: rgba(255,255,255,0.8);
+            color: #ccc;
+            background: rgba(30, 30, 30, 0.8);
             padding: 10px 15px;
             border-radius: 8px;
             pointer-events: none;
@@ -338,19 +338,43 @@
         const runner = Runner.create();
         Runner.run(runner, engine);
 
-        // --- 2. GYROSCOPE (GERÄTENEIGUNG) ---
+        // --- 2. GYROSCOPE (GERÄTENEIGUNG & KALIBRIERUNG) ---
         let currentGravityX = 0;
-        let currentGravityY = 1;
+        let currentGravityY = 0; // Startet jetzt bei 0 (schwerelos) bis geneigt wird
+
+        let isCalibrated = false;
+        let initialGamma = 0;
+        let initialBeta = 0;
 
         window.addEventListener('deviceorientation', (event) => {
-            let gamma = event.gamma || 0;
-            let beta = event.beta || 0;
+            let rawGamma = event.gamma || 0;
+            let rawBeta = event.beta || 0;
 
-            let gravityX = gamma / 45;
-            let gravityY = beta / 45;
+            // Nullpunkt kalibrieren beim allerersten Event (Spawn-Zeitpunkt)
+            if (!isCalibrated) {
+                initialGamma = rawGamma;
+                initialBeta = rawBeta;
+                isCalibrated = true;
+            }
 
-            gravityX = Math.max(-1.5, Math.min(1.5, gravityX));
-            gravityY = Math.max(-1.5, Math.min(1.5, gravityY));
+            // Differenz zum gespeicherten Nullpunkt berechnen
+            let gammaDiff = rawGamma - initialGamma;
+            let betaDiff = rawBeta - initialBeta;
+
+            // Verhindern von Sensor-Sprüngen an den Polgrenzen (Wrap-Around)
+            if (gammaDiff > 90) gammaDiff -= 180;
+            else if (gammaDiff < -90) gammaDiff += 180;
+            
+            if (betaDiff > 180) betaDiff -= 360;
+            else if (betaDiff < -180) betaDiff += 360;
+
+            // Sensibilität erhöht (Teilung durch 30 statt 45)
+            let gravityX = gammaDiff / 30;
+            let gravityY = betaDiff / 30;
+
+            // Begrenzung auf maximal 2G in alle Richtungen
+            gravityX = Math.max(-2.0, Math.min(2.0, gravityX));
+            gravityY = Math.max(-2.0, Math.min(2.0, gravityY));
 
             currentGravityX = gravityX;
             currentGravityY = gravityY;
@@ -363,10 +387,9 @@
         function update() {
             const now = Date.now();
 
-            // Das Blick-Ziel wird stark in die Richtung der Gravitation (Neigung) verschoben.
-            // Die Augen schnappen dadurch förmlich in die entsprechende Richtung der Schwerkraft.
-            const targetX = (window.innerWidth / 2) + currentGravityX * 1500;
-            const targetY = (window.innerHeight / 2) + currentGravityY * 1500;
+            // Das Blick-Ziel wird extrem stark in die Richtung der Gravitation (Neigung) verschoben
+            const targetX = (window.innerWidth / 2) + currentGravityX * 4000;
+            const targetY = (window.innerHeight / 2) + currentGravityY * 4000;
 
             shapeConfigs.forEach(config => {
                 // 3.1. DOM-Element mit dem Physik-Körper synchronisieren
@@ -416,8 +439,8 @@
 
                     const localAngle = Math.atan2(localDy, localDx);
                     
-                    // Reaktions-Stärke massiv erhöht (von 0.15 auf 0.3), damit sie schneller an den Rand schnellen
-                    let dist = Math.hypot(localDx, localDy) * 0.3; 
+                    // Reaktions-Stärke massiv erhöht (von 0.3 auf 1.5)
+                    let dist = Math.hypot(localDx, localDy) * 1.5; 
 
                     const radiusX = Math.min(dist, config.maxEyeRadiusX);
                     const radiusY = Math.min(dist, config.maxEyeRadiusY);
