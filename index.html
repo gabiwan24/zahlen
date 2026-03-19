@@ -36,8 +36,17 @@
             display: block;
         }
 
+        /* Die weiße Sclera bekommt einen Ankerpunkt für das Blinzeln */
+        .sclera {
+            transform-origin: center;
+            transform-box: fill-box;
+            will-change: transform;
+        }
+
         /* Die schwarze Pupille */
         .pupil {
+            transform-origin: center;
+            transform-box: fill-box;
             will-change: transform;
         }
 
@@ -58,7 +67,7 @@
 <body>
 
     <div id="instructions">
-        Neige dein Gerät (oder bewege die Maus), um die Elemente zu steuern!
+        Neige dein Gerät, um die Gravitation zu steuern!
     </div>
 
     <script>
@@ -282,9 +291,10 @@
                 startX: startX, startY: startY,
                 maxEyeRadiusX: maxEyeRadiusX, maxEyeRadiusY: maxEyeRadiusY,
                 createPhysicsBody: createPhysicsBody,
-                // NEU: Ein eigener Vektor für diese spezifische Form und eine zufällige Reaktionsgeschwindigkeit
-                currentEyeVector: { x: 0, y: 1 },
-                eyeLerpSpeed: Math.random() * 0.12 + 0.03 // Wert zwischen 0.03 (sehr träge) und 0.15 (schnell)
+                // Neue Variablen für die Blinzel-Logik
+                blinkScale: 1,
+                blinkState: 0, // 0 = offen, 1 = schließend, 2 = öffnend
+                nextBlinkTime: Date.now() + Math.random() * 5000 + 1000 // Jede Form blinzelt asynchron
             });
         }
 
@@ -328,17 +338,13 @@
         const runner = Runner.create();
         Runner.run(runner, engine);
 
-        // --- 2. INPUT & GYROSCOPE ---
-        let inputVector = { x: 0, y: 1 }; // Standard-Blickrichtung (nach unten)
-        let gyroActive = false;
+        // --- 2. GYROSCOPE (GERÄTENEIGUNG) ---
+        let currentGravityX = 0;
+        let currentGravityY = 1;
 
         window.addEventListener('deviceorientation', (event) => {
-            // Ignoriere Geister-Events ohne echte Sensordaten (z.B. auf Desktop-Browsern)
-            if (event.gamma === null || event.beta === null) return;
-            
-            gyroActive = true;
-            let gamma = event.gamma;
-            let beta = event.beta;
+            let gamma = event.gamma || 0;
+            let beta = event.beta || 0;
 
             let gravityX = gamma / 45;
             let gravityY = beta / 45;
@@ -346,29 +352,22 @@
             gravityX = Math.max(-1.5, Math.min(1.5, gravityX));
             gravityY = Math.max(-1.5, Math.min(1.5, gravityY));
 
+            currentGravityX = gravityX;
+            currentGravityY = gravityY;
+
             engine.gravity.x = gravityX;
             engine.gravity.y = gravityY;
-
-            // Gyrosensor setzt den Zielvektor der Augen
-            inputVector.x = gravityX;
-            inputVector.y = gravityY;
-        });
-
-        // Fallback: Maus-Tracking, falls an einem Desktop-Rechner getestet wird
-        window.addEventListener('mousemove', (e) => {
-            if (gyroActive) return; // Wenn ein Gyro erkannt wurde, ignoriere die Maus
-            
-            // Berechne Vektor von der Bildschirmmitte zur Maus
-            let dx = e.clientX - window.innerWidth / 2;
-            let dy = e.clientY - window.innerHeight / 2;
-            
-            // Werte etwas runterskalieren
-            inputVector.x = dx * 0.01;
-            inputVector.y = dy * 0.01;
         });
 
         // --- 3. RENDER LOOP (Sync Physik -> DOM & Augen) ---
         function update() {
+            const now = Date.now();
+
+            // Das Blick-Ziel wird stark in die Richtung der Gravitation (Neigung) verschoben.
+            // Die Augen schnappen dadurch förmlich in die entsprechende Richtung der Schwerkraft.
+            const targetX = (window.innerWidth / 2) + currentGravityX * 1500;
+            const targetY = (window.innerHeight / 2) + currentGravityY * 1500;
+
             shapeConfigs.forEach(config => {
                 // 3.1. DOM-Element mit dem Physik-Körper synchronisieren
                 const x = config.body.position.x - config.localCx;
@@ -377,33 +376,58 @@
 
                 config.element.style.transform = `translate(${x}px, ${y}px) rotate(${angle}rad)`;
 
-                if (config.scleras && config.scleras.length > 0) {
-                    // 3.2. Augenvektor interpolieren (Lerp - Linear Interpolation)
-                    // Nähert den aktuellen Augenvektor dieser Form schrittweise an den globalen Input-Vektor an
-                    config.currentEyeVector.x += (inputVector.x - config.currentEyeVector.x) * config.eyeLerpSpeed;
-                    config.currentEyeVector.y += (inputVector.y - config.currentEyeVector.y) * config.eyeLerpSpeed;
-
-                    // 3.3. Pupillen berechnen (Blickrichtung basierend auf dem interpolierten Vektor)
-                    config.scleras.forEach((sclera, index) => {
-                        const pupil = config.pupils[index];
-                        
-                        // Die verzögerte Input-Richtung in das lokale Koordinatensystem der Form rotieren
-                        const localDx = config.currentEyeVector.x * Math.cos(-angle) - config.currentEyeVector.y * Math.sin(-angle);
-                        const localDy = config.currentEyeVector.x * Math.sin(-angle) + config.currentEyeVector.y * Math.cos(-angle);
-
-                        const localAngle = Math.atan2(localDy, localDx);
-                        
-                        let dist = Math.hypot(localDx, localDy) * 100;
-
-                        const radiusX = Math.min(dist, config.maxEyeRadiusX);
-                        const radiusY = Math.min(dist, config.maxEyeRadiusY);
-
-                        const finalX = Math.cos(localAngle) * radiusX;
-                        const finalY = Math.sin(localAngle) * radiusY;
-
-                        pupil.style.transform = `translate(${finalX}px, ${finalY}px)`;
-                    });
+                // 3.2. Blinzel-State-Machine
+                if (config.blinkState === 0 && now > config.nextBlinkTime) {
+                    config.blinkState = 1; // Auge beginnt zu schließen
                 }
+
+                if (config.blinkState === 1) {
+                    config.blinkScale -= 0.25; // Schnelles Schließen
+                    if (config.blinkScale <= 0.1) {
+                        config.blinkScale = 0.1;
+                        config.blinkState = 2; // Beginnt wieder zu öffnen
+                    }
+                } else if (config.blinkState === 2) {
+                    config.blinkScale += 0.15; // Etwas langsameres Öffnen
+                    if (config.blinkScale >= 1) {
+                        config.blinkScale = 1;
+                        config.blinkState = 0;
+                        config.nextBlinkTime = now + Math.random() * 4000 + 1000; // Nächstes Blinzeln planen
+                    }
+                }
+
+                // 3.3. Pupillen berechnen
+                config.scleras.forEach((sclera, index) => {
+                    const pupil = config.pupils[index];
+                    
+                    // Wende die Blinzel-Skalierung auf die Sclera (weißes Auge) an
+                    sclera.style.transform = `scaleY(${config.blinkScale})`;
+
+                    const rect = sclera.getBoundingClientRect();
+                    const eyeCenterX = rect.left + rect.width / 2;
+                    const eyeCenterY = rect.top + rect.height / 2;
+
+                    // Distanz zum durch Gravitation bestimmten Ziel berechnen
+                    const globalDx = targetX - eyeCenterX;
+                    const globalDy = targetY - eyeCenterY;
+
+                    const localDx = globalDx * Math.cos(-angle) - globalDy * Math.sin(-angle);
+                    const localDy = globalDx * Math.sin(-angle) + globalDy * Math.cos(-angle);
+
+                    const localAngle = Math.atan2(localDy, localDx);
+                    
+                    // Reaktions-Stärke massiv erhöht (von 0.15 auf 0.3), damit sie schneller an den Rand schnellen
+                    let dist = Math.hypot(localDx, localDy) * 0.3; 
+
+                    const radiusX = Math.min(dist, config.maxEyeRadiusX);
+                    const radiusY = Math.min(dist, config.maxEyeRadiusY);
+
+                    const finalX = Math.cos(localAngle) * radiusX;
+                    const finalY = Math.sin(localAngle) * radiusY;
+
+                    // Wende Translation und Blinzel-Skalierung zeitgleich auf die Pupille an
+                    pupil.style.transform = `translate(${finalX}px, ${finalY}px) scaleY(${config.blinkScale})`;
+                });
             });
 
             requestAnimationFrame(update);
