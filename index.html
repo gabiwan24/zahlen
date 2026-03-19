@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Physik-Zahlen mit Augen</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #f4f4f4;
+            font-family: sans-serif;
+            touch-action: none;
+        }
+
+        /* Generische Klasse für alle physikalischen Formen */
+        .shape-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            cursor: grab;
+            user-select: none;
+            will-change: transform;
+        }
+
+        .shape-container:active {
+            cursor: grabbing;
+        }
+
+        .shape-svg {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* Die schwarze Pupille */
+        .pupil {
+            will-change: transform;
+        }
+
+        #instructions {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #555;
+            background: rgba(255,255,255,0.8);
+            padding: 10px 15px;
+            border-radius: 8px;
+            pointer-events: none;
+            z-index: 10;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+</head>
+<body>
+
+    <div id="instructions">
+        Neige dein Gerät, um die Gravitation zu steuern!
+    </div>
+
+    <script>
+        // --- 1. SETUP DER PHYSIK (MATTER.JS) ---
+        const Engine = Matter.Engine,
+              Render = Matter.Render,
+              Runner = Matter.Runner,
+              Bodies = Matter.Bodies,
+              Composite = Matter.Composite,
+              Mouse = Matter.Mouse,
+              MouseConstraint = Matter.MouseConstraint;
+
+        const engine = Engine.create();
+        const world = engine.world;
+
+        // Container für dynamische Konfigurationen
+        const shapeConfigs = [];
+        const numShapes = 20;
+
+        // Helfer für zufällige, leuchtende Farben (HSL eignet sich am besten für ansprechende Farben)
+        const getRandomColor = () => `hsl(${Math.random() * 360}, 75%, 60%)`;
+
+        for (let i = 0; i < numShapes; i++) {
+            // Zufällig entscheiden, welche der 4 Formen (0=Acht, 1=Zwei, 2=Eins, 3=Zehn) es wird
+            const shapeType = Math.floor(Math.random() * 4);
+            
+            // Nur jede 2. Zahl (bzw. die Hälfte) bekommt Augen
+            const hasEyes = (i % 2 === 0);
+            
+            // Zufällige Pupillengröße für das Paar (Skalierungsfaktor zwischen 0.4 und 1.0)
+            const pupilScale = Math.random() * 0.6 + 0.4;
+            
+            const id = `shape-dynamic-${i}`;
+            const color = getRandomColor();
+            
+            // DOM Element erstellen
+            const el = document.createElement('div');
+            el.id = id;
+            el.className = 'shape-container';
+            
+            let width, height, startX, startY, maxEyeRadiusX, maxEyeRadiusY, createPhysicsBody, svgContent;
+
+            // Startpositionen im Zentrum des Bildschirms.
+            // Eine leichte zufällige Streuung (-100px bis +100px) wird hinzugefügt.
+            // Grund: Wenn 20 starre Körper in Matter.js auf exakt demselben Pixel spawnen, 
+            // stoßen sie sich im ersten Frame mit maximaler Kraft ab ("Kollisions-Explosion").
+            startX = (window.innerWidth / 2) + (Math.random() * 200 - 100);
+            startY = (window.innerHeight / 2) + (Math.random() * 200 - 100); 
+
+            if (shapeType === 0) { // --- DIE ACHT ---
+                width = 96; height = 144; // Skaliert auf 60% (vorher 160x240)
+                maxEyeRadiusX = 30; maxEyeRadiusY = 30; // Skaliert (vorher 50x50)
+                el.style.width = width + 'px';
+                el.style.height = height + 'px';
+                
+                if (hasEyes) {
+                    svgContent = `
+                        <svg class="shape-svg" viewBox="0 0 521 781" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <circle class="sclera" cx="257" cy="219" r="85" fill="white"/>
+                            <circle class="sclera" cx="263.5" cy="523" r="85" fill="white"/>
+                            <circle class="pupil" cx="257" cy="219" r="${63.8 * pupilScale}" fill="black"/>
+                            <circle class="pupil" cx="263.5" cy="523" r="${63.7 * pupilScale}" fill="black"/>
+                            <path d="M230.851 0.355469C344.262 -6.19101 453.315 78.0231 453.315 217.748C453.315 271.745 442.855 314.824 424.13 348.125C482.819 383.775 518.416 448.031 520.283 552.511C528.072 687.435 426.082 771.29 279.724 779.739C133.365 788.188 8.4031 685.66 0.614258 550.735C-4.46187 462.799 21.6644 388.116 88.1934 346.765C67.7028 315.126 55.0972 278.255 52.9385 240.86C32.9578 112.069 117.439 6.90236 230.851 0.355469ZM367.74 505.83C364.699 453.143 317.225 436.023 260.072 439.322C202.92 442.621 157.731 465.09 160.772 517.777C163.814 570.465 212.611 610.502 269.764 607.203C326.916 603.904 370.782 558.517 367.74 505.83ZM344.691 209.951C342.335 169.124 286.927 134.809 242.641 137.365C198.354 139.922 167.635 176.921 169.992 217.748C172.349 258.575 209.97 304.007 254.257 301.45C298.543 298.894 347.048 250.778 344.691 209.951Z" fill="${color}"/>
+                        </svg>
+                    `;
+                } else {
+                    svgContent = `
+                        <svg class="shape-svg" viewBox="0 0 521 781" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M230.851 0.355469C344.262 -6.19101 453.315 78.0231 453.315 217.748C453.315 271.745 442.855 314.824 424.13 348.125C482.819 383.775 518.416 448.031 520.283 552.511C528.072 687.435 426.082 771.29 279.724 779.739C133.365 788.188 8.4031 685.66 0.614258 550.735C-4.46187 462.799 21.6644 388.116 88.1934 346.765C67.7028 315.126 55.0972 278.255 52.9385 240.86C32.9578 112.069 117.439 6.90236 230.851 0.355469ZM367.74 505.83C364.699 453.143 317.225 436.023 260.072 439.322C202.92 442.621 157.731 465.09 160.772 517.777C163.814 570.465 212.611 610.502 269.764 607.203C326.916 603.904 370.782 558.517 367.74 505.83ZM344.691 209.951C342.335 169.124 286.927 134.809 242.641 137.365C198.354 139.922 167.635 176.921 169.992 217.748C172.349 258.575 209.97 304.007 254.257 301.45C298.543 298.894 347.048 250.778 344.691 209.951Z" fill="${color}"/>
+                        </svg>
+                    `;
+                }
+
+                createPhysicsBody = function(x, y) {
+                    // Alle Koordinaten und Radien auf 60% skaliert
+                    const top = Matter.Bodies.circle(x, y - 31.8, 39);
+                    const bot = Matter.Bodies.circle(x, y + 24.6, 46.8);
+                    return Matter.Body.create({ parts: [top, bot], restitution: 0.1, friction: 0.6, density: 0.05, frictionAir: 0.01 });
+                };
+
+            } else if (shapeType === 1) { // --- DIE ZWEI ---
+                width = 120; height = 135; // Skaliert auf 60% (vorher 200x225)
+                maxEyeRadiusX = 48; maxEyeRadiusY = 48; // Skaliert (vorher 80x80)
+                el.style.width = width + 'px';
+                el.style.height = height + 'px';
+
+                const pathId = `shape-2-path-${id}`;
+                const clipShapeId = `clip-shape-2-${id}`;
+                const clipEyeLeftId = `clip-eye-left-2-${id}`;
+                const clipEyeRightId = `clip-eye-right-2-${id}`;
+
+                if (hasEyes) {
+                    svgContent = `
+                        <svg class="shape-svg" viewBox="0 0 626 706" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <defs>
+                                <path id="${pathId}" d="M0 196.67L143.849 272.191C186.404 242.822 255.133 186.601 292.534 196.67C320.975 204.327 306.579 253.18 271.515 313.547L208.581 423.232L43.1548 705.536H625.743L589.78 532.917H296.688C308.076 517.333 343.799 469.983 395.584 405.251C460.316 324.336 492.473 260.928 463.703 118.877C434.933 -23.1735 235.553 -13.7088 143.849 24.0515C70.4858 54.2598 17.3817 151.717 0 196.67Z"/>
+                                <clipPath id="${clipShapeId}"><use href="#${pathId}" /></clipPath>
+                                <clipPath id="${clipEyeLeftId}"><circle cx="190" cy="110" r="75" /></clipPath>
+                                <clipPath id="${clipEyeRightId}"><circle cx="340" cy="90" r="85" /></clipPath>
+                            </defs>
+                            <use href="#${pathId}" fill="${color}" />
+                            <g clip-path="url(#${clipShapeId})">
+                                <circle class="sclera" cx="190" cy="110" r="75" fill="white"/>
+                                <circle class="sclera" cx="340" cy="90" r="85" fill="white"/>
+                                <g clip-path="url(#${clipEyeLeftId})">
+                                    <circle class="pupil" cx="190" cy="110" r="${45 * pupilScale}" fill="black"/>
+                                </g>
+                                <g clip-path="url(#${clipEyeRightId})">
+                                    <circle class="pupil" cx="340" cy="90" r="${50 * pupilScale}" fill="black"/>
+                                </g>
+                            </g>
+                        </svg>
+                    `;
+                } else {
+                    svgContent = `
+                        <svg class="shape-svg" viewBox="0 0 626 706" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M0 196.67L143.849 272.191C186.404 242.822 255.133 186.601 292.534 196.67C320.975 204.327 306.579 253.18 271.515 313.547L208.581 423.232L43.1548 705.536H625.743L589.78 532.917H296.688C308.076 517.333 343.799 469.983 395.584 405.251C460.316 324.336 492.473 260.928 463.703 118.877C434.933 -23.1735 235.553 -13.7088 143.849 24.0515C70.4858 54.2598 17.3817 151.717 0 196.67Z" fill="${color}"/>
+                        </svg>
+                    `;
+                }
+
+                createPhysicsBody = function(x, y) {
+                    // Alle Koordinaten und Dimensionen auf 60% skaliert
+                    const top = Matter.Bodies.circle(x + 12, y - 30, 36);
+                    const mid = Matter.Bodies.circle(x - 12, y + 12, 30);
+                    const base = Matter.Bodies.rectangle(x + 6, y + 54, 108, 24, { chamfer: { radius: 3 } });
+                    return Matter.Body.create({ parts: [top, mid, base], restitution: 0.1, friction: 0.6, density: 0.05, frictionAir: 0.01 });
+                };
+
+            } else if (shapeType === 2) { // --- DIE EINS ---
+                width = 78; height = 144; // Skaliert auf 60% (vorher 130x240)
+                maxEyeRadiusX = 24; maxEyeRadiusY = 24; // Skaliert (vorher 40x40)
+                el.style.width = width + 'px';
+                el.style.height = height + 'px';
+
+                const pathId = `shape-1-path-${id}`;
+                const clipShapeId = `clip-shape-1-${id}`;
+                const clipEyeLeftId = `clip-eye-left-1-${id}`;
+                const clipEyeRightId = `clip-eye-right-1-${id}`;
+
+                // Die wissenschaftliche Notation in deinem SVG Pfad (6.78039e-05) ist CSS/SVG konform.
+                const pathD = "M219.986 0.0000678L0 229.281L92.5356 307.954L219.986 185.406L195.476 729.521H414.729L377.639 0.0000678H219.986Z";
+
+                if (hasEyes) {
+                    svgContent = `
+                        <svg class="shape-svg" viewBox="0 0 415 730" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <defs>
+                                <path id="${pathId}" d="${pathD}"/>
+                                <clipPath id="${clipEyeLeftId}"><circle cx="270" cy="200" r="50" /></clipPath>
+                                <clipPath id="${clipEyeRightId}"><circle cx="360" cy="200" r="50" /></clipPath>
+                            </defs>
+                            <use href="#${pathId}" fill="${color}" />
+                            <!-- Keine Clip-Maske für die Außenform: Augen dürfen über die 1 hinausragen -->
+                            <circle class="sclera" cx="270" cy="200" r="50" fill="white"/>
+                            <circle class="sclera" cx="360" cy="200" r="50" fill="white"/>
+                            <g clip-path="url(#${clipEyeLeftId})">
+                                <circle class="pupil" cx="270" cy="200" r="${35 * pupilScale}" fill="black"/>
+                            </g>
+                            <g clip-path="url(#${clipEyeRightId})">
+                                <circle class="pupil" cx="360" cy="200" r="${35 * pupilScale}" fill="black"/>
+                            </g>
+                        </svg>
+                    `;
+                } else {
+                    svgContent = `
+                        <svg class="shape-svg" viewBox="0 0 415 730" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="${pathD}" fill="${color}"/>
+                        </svg>
+                    `;
+                }
+
+                createPhysicsBody = function(x, y) {
+                    // Physik-Kontur der 1 auf 60% skaliert
+                    const stem = Matter.Bodies.rectangle(x + 12, y + 9, 36, 126, { chamfer: { radius: 3 } });
+                    const beak = Matter.Bodies.rectangle(x - 12, y - 36, 48, 24, { angle: 0.7, chamfer: { radius: 3 } });
+                    return Matter.Body.create({ parts: [stem, beak], restitution: 0.1, friction: 0.6, density: 0.05, frictionAir: 0.01 });
+                };
+            } else { // --- DIE ZEHN ---
+                width = 150; height = 108; // Skaliert auf 60% (vorher 250x180)
+                maxEyeRadiusX = 36; maxEyeRadiusY = 36; // Skaliert (vorher 60x60)
+                el.style.width = width + 'px';
+                el.style.height = height + 'px';
+
+                if (hasEyes) {
+                    svgContent = `
+                        <svg class="shape-svg" viewBox="0 0 1019 734" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <!-- Sclera (Weißes Auge) liegt unter der Maske (genau wie bei der 8) -->
+                            <circle class="sclera" cx="745" cy="407" r="110" fill="white"/>
+                            <circle class="pupil" cx="745" cy="407" r="${75 * pupilScale}" fill="black"/>
+                            
+                            <!-- Die Form der 10 (die 0 hat eine 'evenodd' Füllung und fungiert somit als Maske mit Loch) -->
+                            <path fill-rule="evenodd" clip-rule="evenodd" d="M792.027 31.8682C942.903 31.8682 1018.83 123.368 1018.83 380.887C1018.83 575.715 931.457 733.655 745.646 733.655C594.77 733.655 472.461 685.442 472.461 380.887C472.461 186.059 579.158 31.8684 792.027 31.8682ZM844.254 365.078C844.254 262.798 789.844 224.8 735.385 249.726C680.925 274.651 647.039 324.16 647.039 455.343C647.039 576.513 725.483 590.622 779.942 565.696C834.402 540.77 844.254 489.37 844.254 365.078Z" fill="${color}"/>
+                            <path d="M377.639 0L414.729 729.521H195.477L219.986 185.405L92.5352 307.954L0 229.28L219.986 0H377.639Z" fill="${color}"/>
+                        </svg>
+                    `;
+                } else {
+                    svgContent = `
+                        <svg class="shape-svg" viewBox="0 0 1019 734" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path fill-rule="evenodd" clip-rule="evenodd" d="M792.027 31.8682C942.903 31.8682 1018.83 123.368 1018.83 380.887C1018.83 575.715 931.457 733.655 745.646 733.655C594.77 733.655 472.461 685.442 472.461 380.887C472.461 186.059 579.158 31.8684 792.027 31.8682ZM844.254 365.078C844.254 262.798 789.844 224.8 735.385 249.726C680.925 274.651 647.039 324.16 647.039 455.343C647.039 576.513 725.483 590.622 779.942 565.696C834.402 540.77 844.254 489.37 844.254 365.078Z" fill="${color}"/>
+                            <path d="M377.639 0L414.729 729.521H195.477L219.986 185.405L92.5352 307.954L0 229.28L219.986 0H377.639Z" fill="${color}"/>
+                        </svg>
+                    `;
+                }
+
+                createPhysicsBody = function(x, y) {
+                    // Physik-Kontur der 10 auf 60% skaliert
+                    const stem = Matter.Bodies.rectangle(x - 45, y, 30, 102, { chamfer: { radius: 3 } });
+                    const zero = Matter.Bodies.circle(x + 33, y, 51);
+                    return Matter.Body.create({ parts: [stem, zero], restitution: 0.1, friction: 0.6, density: 0.05, frictionAir: 0.01 });
+                };
+            }
+
+            // SVG in den erstellten Container packen und in das Dokument einhängen
+            el.innerHTML = svgContent;
+            document.body.appendChild(el);
+
+            shapeConfigs.push({
+                id: id,
+                element: el,
+                width: width, height: height,
+                startX: startX, startY: startY,
+                maxEyeRadiusX: maxEyeRadiusX, maxEyeRadiusY: maxEyeRadiusY,
+                createPhysicsBody: createPhysicsBody
+            });
+        }
+
+        // Formen initialisieren und in die Welt einfügen
+        shapeConfigs.forEach(config => {
+            config.body = config.createPhysicsBody(config.startX, config.startY);
+            Composite.add(world, config.body);
+
+            // Lokalen Schwerpunkt für exakte CSS Rotation berechnen
+            config.localCx = config.body.position.x - (config.startX - config.width / 2);
+            config.localCy = config.body.position.y - (config.startY - config.height / 2);
+            config.element.style.transformOrigin = `${config.localCx}px ${config.localCy}px`;
+
+            // HTML Elemente für die Augen zwischenspeichern
+            config.scleras = config.element.querySelectorAll('.sclera');
+            config.pupils = config.element.querySelectorAll('.pupil');
+        });
+
+        // Erstelle den Boden, die Decke und die Wände
+        let ground = Bodies.rectangle(
+            window.innerWidth / 2, window.innerHeight + 30, window.innerWidth * 2, 60, 
+            { isStatic: true, friction: 0.8 } 
+        );
+        let ceiling = Bodies.rectangle(
+            window.innerWidth / 2, -30, window.innerWidth * 2, 60, 
+            { isStatic: true, friction: 0.8 } 
+        );
+        let wallLeft = Bodies.rectangle(-30, window.innerHeight/2, 60, window.innerHeight * 2, { isStatic: true });
+        let wallRight = Bodies.rectangle(window.innerWidth + 30, window.innerHeight/2, 60, window.innerHeight * 2, { isStatic: true });
+
+        Composite.add(world, [ground, ceiling, wallLeft, wallRight]);
+
+        // Interaktivität (Maus-Steuerung)
+        const mouse = Mouse.create(document.body);
+        const mouseConstraint = MouseConstraint.create(engine, {
+            mouse: mouse,
+            constraint: { stiffness: 0.2, render: { visible: false } }
+        });
+        Composite.add(world, mouseConstraint);
+
+        const runner = Runner.create();
+        Runner.run(runner, engine);
+
+        // --- 2. GYROSCOPE (GERÄTENEIGUNG) ---
+        window.addEventListener('deviceorientation', (event) => {
+            // gamma: Links/Rechts Neigung (-90 bis 90)
+            // beta: Vor/Zurück Neigung (-180 bis 180)
+            let gamma = event.gamma || 0;
+            let beta = event.beta || 0;
+
+            // Wir skalieren die Werte (Teilung durch 45), sodass bei 45 Grad Neigung 
+            // exakt die einfache Standard-Gravitation (1.0) erreicht wird.
+            let gravityX = gamma / 45;
+            let gravityY = beta / 45;
+
+            // Optional: Begrenzung der maximalen Fallgeschwindigkeit bei extremer Neigung
+            gravityX = Math.max(-1.5, Math.min(1.5, gravityX));
+            gravityY = Math.max(-1.5, Math.min(1.5, gravityY));
+
+            // Matter.js Gravitation anpassen
+            engine.gravity.x = gravityX;
+            engine.gravity.y = gravityY;
+        });
+
+        // --- 3. RENDER LOOP (Sync Physik -> DOM & Augen) ---
+        function update() {
+            // Ziel für die Augen ist jetzt immer exakt die Bildschirmmitte
+            const targetX = window.innerWidth / 2;
+            const targetY = window.innerHeight / 2;
+
+            shapeConfigs.forEach(config => {
+                // 3.1. DOM-Element mit dem Physik-Körper synchronisieren
+                const x = config.body.position.x - config.localCx;
+                const y = config.body.position.y - config.localCy;
+                const angle = config.body.angle;
+
+                config.element.style.transform = `translate(${x}px, ${y}px) rotate(${angle}rad)`;
+
+                // 3.2. Pupillen berechnen
+                config.scleras.forEach((sclera, index) => {
+                    const pupil = config.pupils[index];
+                    
+                    const rect = sclera.getBoundingClientRect();
+                    const eyeCenterX = rect.left + rect.width / 2;
+                    const eyeCenterY = rect.top + rect.height / 2;
+
+                    // Distanz zur Bildschirmmitte berechnen (statt Maus)
+                    const globalDx = targetX - eyeCenterX;
+                    const globalDy = targetY - eyeCenterY;
+
+                    const localDx = globalDx * Math.cos(-angle) - globalDy * Math.sin(-angle);
+                    const localDy = globalDx * Math.sin(-angle) + globalDy * Math.cos(-angle);
+
+                    const localAngle = Math.atan2(localDy, localDx);
+                    let dist = Math.hypot(localDx, localDy) * 0.15; // Etwas reaktiver gemacht
+
+                    const radiusX = Math.min(dist, config.maxEyeRadiusX);
+                    const radiusY = Math.min(dist, config.maxEyeRadiusY);
+
+                    const finalX = Math.cos(localAngle) * radiusX;
+                    const finalY = Math.sin(localAngle) * radiusY;
+
+                    pupil.style.transform = `translate(${finalX}px, ${finalY}px)`;
+                });
+            });
+
+            requestAnimationFrame(update);
+        }
+
+        update();
+
+        // --- 4. RESIZE HANDLING ---
+        window.addEventListener('resize', () => {
+            Matter.Body.setPosition(ground, { x: window.innerWidth / 2, y: window.innerHeight + 30 });
+            Matter.Body.setVertices(ground, Matter.Bodies.rectangle(window.innerWidth / 2, window.innerHeight + 30, window.innerWidth * 2, 60).vertices);
+            
+            Matter.Body.setPosition(ceiling, { x: window.innerWidth / 2, y: -30 });
+            Matter.Body.setVertices(ceiling, Matter.Bodies.rectangle(window.innerWidth / 2, -30, window.innerWidth * 2, 60).vertices);
+            
+            Matter.Body.setPosition(wallLeft, { x: -30, y: window.innerHeight / 2 });
+            Matter.Body.setVertices(wallLeft, Matter.Bodies.rectangle(-30, window.innerHeight/2, 60, window.innerHeight * 2).vertices);
+
+            Matter.Body.setPosition(wallRight, { x: window.innerWidth + 30, y: window.innerHeight / 2 });
+            Matter.Body.setVertices(wallRight, Matter.Bodies.rectangle(window.innerWidth + 30, window.innerHeight/2, 60, window.innerHeight * 2).vertices);
+        });
+
+    </script>
+</body>
+</html>
